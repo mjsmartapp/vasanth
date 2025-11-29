@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Dashboard</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for dark theme */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117; /* Dark background */
+            color: #c9d1d9; /* Light text */
+        }
+        .header-bg {
+            background-color: #161b22;
+            border-bottom: 1px solid #30363d;
+        }
+        .dashboard-card {
+            background-color: #161b22;
+            border: 1px solid #30363d;
+        }
+        .logout-btn {
+            background-color: #d73a49; /* Red accent for logout */
+            transition: background-color 0.2s;
+        }
+        .logout-btn:hover {
+            background-color: #b32a35;
+        }
+        /* Loader styles kept consistent */
+        .loader-overlay {
+            background-color: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(2px);
+            z-index: 50;
+        }
+        .loader-bar {
+            width: 80%;
+            height: 6px;
+            background-color: #238636;
+            border-radius: 9999px;
+            overflow: hidden;
+        }
+        .loader-bar::after {
+            content: '';
+            display: block;
+            width: 20%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+            animation: move-loader 1.5s infinite linear;
+        }
+        @keyframes move-loader {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(500%); }
+        }
+    </style>
+    <!-- Firebase Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getAuth, signOut, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        
+        // Provided Firebase Configuration (from index.html/admin.html)
+        const firebaseConfig = {
+            apiKey: "AIzaSyCu_WUd66NRLa_8uI06UXVTlkDh74dMBqU",
+            authDomain: "vasanth-ee54c.firebaseapp.com",
+            databaseURL: "https://vasanth-ee54c-default-rtdb.firebaseio.com",
+            projectId: "vasanth-ee54c",
+            storageBucket: "vasanth-ee54c.firebase-storage.app",
+            messagingSenderId: "668556425496",
+            appId: "1:668556425496:web:1b3aab6bf95a5baa19c66d",
+            measurementId: "G-8R23976J89"
+        };
+        
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+
+        // Global UI elements
+        const loader = document.getElementById('loader');
+
+        // Utility Functions
+        function showLoader(text = 'Loading...') {
+            document.getElementById('loader-text').textContent = text;
+            loader.classList.remove('hidden');
+        }
+
+        function hideLoader() {
+            loader.classList.add('hidden');
+        }
+
+        // --- AUTHENTICATION & REDIRECTION ---
+
+        /**
+         * Ensures a basic anonymous session is established.
+         */
+        async function checkAuthorization() {
+            showLoader('Verifying session...');
+            try {
+                // Attempt to sign in anonymously to ensure a persistent session 
+                if (!auth.currentUser) {
+                    await signInAnonymously(auth);
+                }
+                // Once session is ready, hide loader and display content
+                hideLoader();
+            } catch (error) {
+                console.error("Authorization Check Failed:", error);
+                // If sign-in fails, assume unauthorized or expired session and redirect
+                alert("Session expired or unauthorized. Redirecting to login.");
+                window.location.href = 'index.html';
+            }
+        }
+
+        document.getElementById('logout-btn').addEventListener('click', async () => {
+            showLoader('Logging out...');
+            try {
+                await signOut(auth);
+            } catch (error) {
+                // Ignore sign out errors, just redirect
+                console.warn("Sign out warning:", error.message);
+            } finally {
+                // Always redirect to the login page
+                window.location.href = 'index.html';
+            }
+        });
+
+        // --- INITIALIZATION ---
+        document.addEventListener('DOMContentLoaded', () => {
+            checkAuthorization();
+        });
+
+    </script>
+</head>
+<body class="flex flex-col min-h-screen p-4 md:p-8">
+
+    <!-- Loader Overlay -->
+    <div id="loader" class="fixed inset-0 flex flex-col items-center justify-center hidden loader-overlay">
+        <div class="loader-bar"></div>
+        <p id="loader-text" class="mt-4 text-white text-lg font-medium"></p>
+    </div>
+
+    <!-- Header -->
+    <header class="header-bg p-4 md:p-6 rounded-t-lg shadow-xl flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-extrabold text-white">User Portal</h1>
+        <button id="logout-btn" class="logout-btn text-white font-semibold py-2 px-4 rounded-lg transition duration-150 shadow-md">
+            Logout
+        </button>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-grow flex items-center justify-center p-4">
+        <div class="dashboard-card p-8 md:p-12 rounded-xl shadow-2xl text-center max-w-lg w-full">
+            <h2 class="text-4xl font-bold text-green-400 mb-4">Welcome Back!</h2>
+            <p class="text-lg text-gray-400 mb-6">
+                You have successfully accessed the secure user area.
+            </p>
+            <p class="text-sm text-gray-500">
+                (Content specific to your user role would be displayed here.)
+            </p>
+        </div>
+    </main>
+</body>
+</html>

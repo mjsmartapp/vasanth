@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for PREMIUM Dark Theme and Layout */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117; /* Very Dark background */
+            color: #e2e8f0; /* Slightly lighter text for readability */
+            margin: 0;
+            padding: 0;
+        }
+        .header-bg {
+            background-color: #161b22; /* Slightly defined header background */
+            border-bottom: 1px solid #2d3748;
+        }
+        .table-header {
+            background-color: #2d3748; /* Darker header for tables */
+            color: #f0f6fc;
+        }
+        /* Refined row styles and hover effect */
+        .user-row, .stock-row {
+            transition: background-color 0.15s ease;
+        }
+        .user-row:hover, .stock-row:hover {
+            background-color: #1e2531 !important; 
+        }
+        .user-row:nth-child(even), .stock-row:nth-child(even) {
+            background-color: #161b22;
+        }
+        .user-row:nth-child(odd), .stock-row:nth-child(odd) {
+            background-color: #0d1117;
+        }
+        .action-btn {
+            padding: 6px 12px; /* Bigger buttons */
+            border-radius: 8px; /* Softer corners */
+            font-size: 0.875rem;
+            font-weight: 600;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+        .action-btn:hover {
+            transform: translateY(-1px);
+        }
+
+        /* Modals and Loader */
+        .loader-overlay, .modal-overlay, #custom-alert {
+            z-index: 1000;
+        }
+        .loader-bar {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #6366f1; /* Indigo loading bar */
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* --- NAVIGATION & SIDEBAR (Indigo Accent) --- */
+
+        /* Hide scrollbar for cleaner look on horizontal nav */
+        .sidebar::-webkit-scrollbar {
+            height: 4px;
+        }
+        .sidebar::-webkit-scrollbar-thumb {
+            background-color: #30363d;
+            border-radius: 2px;
+        }
+        
+        .nav-item {
+            display: flex; 
+            align-items: center; 
+            padding: 0.75rem 1rem;
+            margin: 0.25rem 0;
+            border-radius: 0.5rem;
+            color: #a0aec0; /* Muted text for non-active */
+            transition: background-color 0.15s, color 0.15s, box-shadow 0.15s;
+            margin-right: 0.5rem; 
+            flex-shrink: 0; 
+        }
+        .nav-item:hover {
+            background-color: #1e2531;
+            color: #fff;
+        }
+        /* Premium active style: Indigo background with a slight shadow */
+        .nav-item.active {
+            background-color: #4f46e5; /* Tailwind Indigo-600 */
+            color: white;
+            font-weight: 600;
+            box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.4), 0 2px 4px -1px rgba(79, 70, 229, 0.2);
+        }
+        /* Desktop specific nav item style */
+        @media (min-width: 768px) {
+            .nav-item {
+                margin-right: 0;
+                margin-bottom: 0.5rem; 
+            }
+        }
+        
+        /* Style for Stock Grid Item (Premium Look) */
+        .stock-card {
+            background-color: #161b22;
+            border: 1px solid #2d3748; /* Softer border */
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+            border-radius: 12px; /* More rounded corners */
+        }
+        .stock-card:hover {
+            transform: translateY(-4px); /* More pronounced lift */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.1);
+            border-color: #4f46e5; /* Indigo accent border on hover */
+        }
+    </style>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getAuth, signOut, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { getDatabase, ref, onValue, remove, push, update } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        
+        // Provided Firebase Configuration (from index.html)
+        const firebaseConfig = {
+            apiKey: "AIzaSyCu_WUd66NRLa_8uI06UXVTlkDh74dMBqU",
+            authDomain: "vasanth-ee54c.firebaseapp.com",
+            databaseURL: "https://vasanth-ee54c-default-rtdb.firebaseio.com",
+            projectId: "vasanth-ee54c",
+            storageBucket: "vasanth-ee54c.firebase-storage.app",
+            messagingSenderId: "668556425496",
+            appId: "1:668556425496:web:1b3aab6bf95a5baa19c66d",
+            measurementId: "G-8R23976J89"
+        };
+        
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getDatabase(app);
+
+        // Global UI elements and Data
+        const userTableBody = document.getElementById('user-table-body');
+        const stockTableBody = document.getElementById('stock-table-body');
+        const stockGridContainer = document.getElementById('stock-grid-container');
+        const loader = document.getElementById('loader');
+        
+        let allStockItems = {}; // Global variable to hold raw stock data
+        
+        // Modals
+        const stockModal = document.getElementById('stock-modal'); // Add/Edit Modal
+        const stockForm = document.getElementById('stock-form');
+        const modalTitle = document.getElementById('modal-title');
+        const stockIdInput = document.getElementById('stock-id');
+
+        const transactionModal = document.getElementById('transaction-modal'); // IN/OUT Modal
+        const transactionForm = document.getElementById('transaction-form');
+        const transactionItemName = document.getElementById('transaction-item-name');
+        const transactionStockId = document.getElementById('transaction-stock-id');
+        const transactionCurrentQuantity = document.getElementById('transaction-current-quantity');
+        const transactionQuantityInput = document.getElementById('transaction-quantity');
+
+
+        // --- UI UTILITY FUNCTIONS ---
+        function showLoader(text = 'Loading data...') {
+            document.getElementById('loader-text').textContent = text;
+            loader.classList.remove('hidden');
+        }
+
+        function hideLoader() {
+            loader.classList.add('hidden');
+        }
+        
+        function showModal(modalElement) {
+            modalElement.classList.remove('hidden');
+        }
+
+        function hideModal(modalElement) {
+            modalElement.classList.add('hidden');
+            // Clear all forms on hide
+            if (modalElement === stockModal) stockForm.reset();
+            if (modalElement === transactionModal) transactionForm.reset();
+        }
+
+        /**
+         * Switches the main content view based on navigation selection.
+         * @param {string} contentId - ID of the content div to show ('dashboard', 'stock-management', 'employee').
+         */
+        function showContent(contentId) {
+            // Hide all content sections
+            document.getElementById('dashboard-content').classList.add('hidden');
+            document.getElementById('stock-management-content').classList.add('hidden');
+            document.getElementById('employee-content').classList.add('hidden');
+
+            // Show the requested content section
+            document.getElementById(`${contentId}-content`).classList.remove('hidden');
+
+            // Update active navigation item
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            document.getElementById(`${contentId}-nav`).classList.add('active');
+
+            // Change title
+            let title = '';
+            if (contentId === 'dashboard') title = 'Dashboard (Stock Overview)';
+            else if (contentId === 'stock-management') title = 'Stock Management';
+            else if (contentId === 'employee') title = 'Employee Management';
+            document.getElementById('main-content-title').textContent = title;
+        }
+
+        // Helper to format timestamp
+        function formatTimestamp(timestamp) {
+            if (!timestamp) return 'N/A';
+            const date = new Date(timestamp);
+            return date.toLocaleDateString('en-US') + ' ' + date.toLocaleTimeString('en-US');
+        }
+
+        // --- AUTHENTICATION & REDIRECTION ---
+
+        async function checkAuthorization() {
+            try {
+                if (!auth.currentUser) {
+                    await signInAnonymously(auth);
+                }
+                loadUsers();
+                loadStock();
+                // Set default view to Dashboard (Grid View)
+                showContent('dashboard');
+            } catch (error) {
+                console.error("Authorization Check Failed:", error);
+                alert("Session expired or unauthorized access. Redirecting to login.");
+                window.location.href = 'index.html';
+            }
+        }
+
+        document.getElementById('logout-btn').addEventListener('click', async () => {
+            showLoader('Logging out...');
+            try {
+                await signOut(auth);
+            } catch (error) {
+                console.warn("Sign out warning:", error.message);
+            } finally {
+                window.location.href = 'index.html';
+            }
+        });
+
+        // --- REALTIME DATABASE MANAGEMENT (Stock) ---
+        
+        /**
+         * Renders the stock data grid cards for the Dashboard view.
+         * This function expects already filtered data.
+         */
+        function renderGridCards(filteredItems) {
+            stockGridContainer.innerHTML = ''; // Clear existing data
+
+            if (Object.keys(filteredItems).length === 0) {
+                stockGridContainer.innerHTML = `
+                    <div class="col-span-full p-8 text-center text-gray-400 bg-[#161b22] rounded-xl border border-gray-700">
+                        No stock items found matching the current filters.
+                    </div>
+                `;
+                return;
+            }
+
+            Object.entries(filteredItems).forEach(([stockId, stockData]) => {
+                const card = document.createElement('div');
+                // Updated classes for a premium card look
+                card.classList.add('stock-card', 'p-6', 'rounded-xl', 'shadow-xl', 'flex', 'flex-col', 'justify-between');
+                card.setAttribute('data-id', stockId);
+                card.setAttribute('data-name', stockData.itemName);
+                card.setAttribute('data-unit', stockData.unit);
+                card.setAttribute('data-quantity', stockData.quantity);
+                
+                // Low stock limit is set to 5, anything less or equal is red.
+                const quantityColor = stockData.quantity <= 5 ? 'text-red-500' : 'text-green-500';
+
+                card.innerHTML = `
+                    <div>
+                        <h3 class="text-xl font-extrabold text-white mb-3 truncate">${stockData.itemName || 'N/A'}</h3>
+                        <p class="text-sm text-gray-400 uppercase tracking-wider">Available Quantity:</p>
+                        <p class="text-4xl font-extrabold ${quantityColor} mb-4">
+                            ${stockData.quantity || 0} <span class="text-xl font-semibold text-gray-500">${stockData.unit || ''}</span>
+                        </p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500">Price: <span class="text-yellow-400 font-semibold">₹${(stockData.price || 0).toFixed(2)}</span> / ${stockData.unit}</p>
+                        <p class="text-xs text-gray-500 mt-1">Last Updated:</p>
+                        <p class="text-xs text-gray-400">${formatTimestamp(stockData.lastUpdated)}</p>
+                    </div>
+                `;
+                
+                card.addEventListener('click', () => openTransactionModal(stockId, stockData.itemName, stockData.quantity, stockData.unit));
+                stockGridContainer.appendChild(card);
+            });
+        }
+        
+        /**
+         * Applies filters to the global stock data and initiates grid rendering.
+         */
+        function filterAndRenderStockGrid() {
+            // Get current filter values
+            const searchTerm = document.getElementById('stock-search').value.toLowerCase();
+            const quantityFilter = document.getElementById('quantity-filter').value;
+            const outOfStockOnly = document.getElementById('out-of-stock-only').checked;
+            
+            // Convert to array and filter
+            const filteredArray = Object.entries(allStockItems).filter(([stockId, stockData]) => {
+                let matches = true;
+                const name = stockData.itemName ? stockData.itemName.toLowerCase() : '';
+                const quantity = stockData.quantity || 0;
+                
+                // Filter 1: Search by Item Name
+                if (searchTerm && !name.includes(searchTerm)) {
+                    matches = false;
+                }
+
+                // Filter 2: Quantity Filter (Dropdown)
+                if (matches && quantityFilter === 'low' && quantity > 5) {
+                    matches = false;
+                } else if (matches && quantityFilter === 'high' && quantity <= 5) {
+                    matches = false;
+                }
+                
+                // Filter 3: Low Stock Only Checkbox (Redundant but confirms filter state)
+                if (matches && outOfStockOnly && quantity > 5) {
+                    matches = false;
+                }
+
+                return matches;
+            });
+            
+            // Convert back to object for rendering
+            const finalFilteredItems = Object.fromEntries(filteredArray);
+
+            renderGridCards(finalFilteredItems);
+        }
+
+        /**
+         * Renders stock data into the traditional table view.
+         */
+        function renderStockTable(stockItems) {
+            stockTableBody.innerHTML = '';
+            if (Object.keys(stockItems).length === 0) {
+                stockTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="p-6 text-center text-gray-400">
+                            No stock items found in the Realtime Database.
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            let stockCount = 0;
+            Object.entries(stockItems).forEach(([stockId, stockData]) => {
+                stockCount++;
+                const row = document.createElement('tr');
+                row.classList.add('stock-row', 'text-sm', 'border-b', 'border-gray-700');
+                
+                row.innerHTML = `
+                    <td class="p-3 text-center">${stockCount}</td>
+                    <td class="p-3 font-mono text-xs">${stockId}</td>
+                    <td class="p-3 font-semibold">${stockData.itemName || 'N/A'}</td>
+                    <td class="p-3">${stockData.unit || 'N/A'}</td>
+                    <td class="p-3 text-center font-bold ${stockData.quantity <= 5 ? 'text-red-400' : 'text-green-400'}">${stockData.quantity || 0}</td>
+                    <td class="p-3 text-right text-yellow-400">₹${(stockData.price || 0).toFixed(2)}</td>
+                    <td class="p-3 text-center space-x-2">
+                        <button class="action-btn bg-indigo-600 hover:bg-indigo-700 text-white edit-btn" 
+                                data-id="${stockId}" 
+                                data-name="${stockData.itemName}"
+                                data-unit="${stockData.unit}"
+                                data-quantity="${stockData.quantity}"
+                                data-price="${stockData.price}">
+                            Edit
+                        </button>
+                        <button class="action-btn bg-red-600 hover:bg-red-700 text-white delete-stock-btn" data-id="${stockId}">
+                            Delete
+                        </button>
+                    </td>
+                `;
+                stockTableBody.appendChild(row);
+            });
+
+            // Attach event listeners for stock actions
+            stockTableBody.querySelectorAll('.edit-btn').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const data = e.target.dataset;
+                    editStock(data.id, data.name, data.unit, data.quantity, data.price);
+                });
+            });
+            stockTableBody.querySelectorAll('.delete-stock-btn').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const stockIdToDelete = e.target.getAttribute('data-id');
+                    deleteStock(stockIdToDelete);
+                });
+            });
+        }
+
+
+        /**
+         * Fetches and calls rendering functions for all stock data from the Realtime Database.
+         */
+        function loadStock() {
+            showLoader('Fetching stock inventory...');
+            const stockRef = ref(db, 'stock');
+
+            onValue(stockRef, (snapshot) => {
+                hideLoader();
+                // Store the raw data globally
+                allStockItems = snapshot.exists() ? snapshot.val() : {};
+                
+                // Initial render of the grid view with all items (no filters)
+                filterAndRenderStockGrid(); 
+                // Render the table view (which always shows all items for management)
+                renderStockTable(allStockItems); 
+
+            }, (error) => {
+                hideLoader();
+                console.error("RTDB Fetch Error (Stock):", error);
+                alert("Failed to load stock data. Check console for details.");
+            });
+        }
+
+        // --- Stock Modal Functions (Add/Edit) ---
+
+        function editStock(id, name, unit, quantity, price) {
+            modalTitle.textContent = 'Edit Stock Item';
+            stockIdInput.value = id;
+            document.getElementById('item-name').value = name;
+            document.getElementById('item-unit').value = unit;
+            document.getElementById('item-quantity').value = quantity;
+            document.getElementById('item-price').value = price;
+            showModal(stockModal);
+        }
+
+        async function deleteStock(stockId) {
+            if (!window.confirm(`Are you sure you want to permanently delete stock item with ID: ${stockId}?`)) {
+                return;
+            }
+
+            showLoader(`Deleting stock item ${stockId}...`);
+            try {
+                const stockNodeRef = ref(db, `stock/${stockId}`);
+                await remove(stockNodeRef);
+                alert(`Stock item ${stockId} deleted successfully.`);
+            } catch (error) {
+                console.error("Stock Delete Error:", error);
+                alert(`Error deleting stock item: ${error.message}`);
+            } finally {
+                hideLoader();
+            }
+        }
+
+        // --- Stock Transaction Functions (IN/OUT) ---
+
+        function openTransactionModal(id, name, quantity, unit) {
+            transactionItemName.textContent = name;
+            transactionStockId.value = id;
+            transactionCurrentQuantity.textContent = `${quantity} ${unit}`;
+            showModal(transactionModal);
+        }
+
+        async function processStockTransaction(isIN) {
+            const stockId = transactionStockId.value;
+            const quantityChange = parseFloat(transactionQuantityInput.value);
+
+            if (isNaN(quantityChange) || quantityChange <= 0) {
+                alert('Please enter a valid quantity greater than zero.');
+                return;
+            }
+
+            hideModal(transactionModal); // Hide the transaction modal
+            showLoader(isIN ? 'Adding stock...' : 'Removing stock...');
+
+            try {
+                const stockRef = ref(db, `stock/${stockId}`);
+                
+                // Fetch current data to ensure accuracy before update
+                const snapshot = await new Promise((resolve, reject) => {
+                    onValue(stockRef, resolve, reject, { onlyOnce: true });
+                });
+                
+                if (!snapshot.exists()) {
+                    throw new Error("Stock item not found.");
+                }
+
+                const currentQuantity = snapshot.val().quantity || 0;
+                let newQuantity = currentQuantity;
+
+                if (isIN) {
+                    newQuantity = currentQuantity + quantityChange;
+                } else {
+                    newQuantity = currentQuantity - quantityChange;
+                    if (newQuantity < 0) {
+                        newQuantity = 0;
+                        alert('Warning: Stock quantity cannot go below zero. Quantity set to 0.');
+                    }
+                }
+
+                const updates = {
+                    quantity: newQuantity,
+                    lastUpdated: Date.now()
+                };
+
+                await update(stockRef, updates);
+                alert(`${isIN ? 'Added' : 'Removed'} ${quantityChange} ${snapshot.val().unit} to ${snapshot.val().itemName}. New quantity: ${newQuantity}.`);
+
+            } catch (error) {
+                console.error("Transaction Error:", error);
+                alert(`Error processing transaction: ${error.message}`);
+            } finally {
+                hideLoader();
+            }
+        }
+
+
+        // --- FORM SUBMIT HANDLERS ---
+
+        // Add/Edit Stock Form Submission
+        stockForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const isEdit = stockIdInput.value !== '';
+            const stockId = stockIdInput.value;
+            const itemName = document.getElementById('item-name').value;
+            const unit = document.getElementById('item-unit').value;
+            const quantity = parseInt(document.getElementById('item-quantity').value, 10);
+            const price = parseFloat(document.getElementById('item-price').value);
+
+            if (!itemName || !unit || isNaN(quantity) || quantity < 0 || isNaN(price) || price < 0) {
+                alert('Please ensure all fields are filled correctly (Quantity and Price must be numbers).');
+                return;
+            }
+
+            const stockData = {
+                itemName: itemName,
+                unit: unit,
+                quantity: quantity,
+                price: price,
+                lastUpdated: Date.now() // Always update timestamp on Add/Edit
+            };
+
+            showLoader(isEdit ? `Updating stock item ${stockId}...` : 'Adding new stock item...');
+            hideModal(stockModal);
+
+            try {
+                if (isEdit) {
+                    const itemRef = ref(db, `stock/${stockId}`);
+                    await update(itemRef, stockData);
+                    alert(`Stock item ${stockId} updated successfully.`);
+                } else {
+                    const newStockRef = push(ref(db, 'stock'));
+                    await update(newStockRef, stockData);
+                    alert(`New stock item added successfully.`);
+                }
+            } catch (error) {
+                console.error(isEdit ? "Update Error:" : "Add Error:", error);
+                alert(`Error ${isEdit ? 'updating' : 'adding'} stock item: ${error.message}`);
+            } finally {
+                hideLoader();
+            }
+        });
+
+        // --- REALTIME DATABASE MANAGEMENT (Users) ---
+
+        function loadUsers() {
+            showLoader('Fetching all registered users...');
+            const usersRef = ref(db, 'users');
+            onValue(usersRef, (snapshot) => {
+                userTableBody.innerHTML = '';
+                if (snapshot.exists()) {
+                    let userCount = 0;
+                    snapshot.forEach((childSnapshot) => {
+                        const userId = childSnapshot.key;
+                        const userData = childSnapshot.val();
+                        userCount++;
+                        const row = document.createElement('tr');
+                        row.classList.add('user-row', 'text-sm', 'border-b', 'border-gray-700');
+                        row.innerHTML = `
+                            <td class="p-3 text-center">${userCount}</td>
+                            <td class="p-3 font-mono text-xs">${userId}</td>
+                            <td class="p-3 font-semibold">${userData.name || 'N/A'}</td>
+                            <td class="p-3">${userData.email || 'N/A'}</td>
+                            <td class="p-3">${userData.phone || 'N/A'}</td>
+                            <td class="p-3 text-indigo-400 font-semibold">${userData.role || 'user'}</td>
+                            <td class="p-3 font-mono text-xs text-red-400">${userData.password || 'N/A'}</td>
+                            <td class="p-3 text-center">
+                                <button class="action-btn bg-red-600 hover:bg-red-700 text-white delete-btn" data-id="${userId}">
+                                    Delete
+                                </button>
+                            </td>
+                        `;
+                        userTableBody.appendChild(row);
+                    });
+                    userTableBody.querySelectorAll('.delete-btn').forEach(button => {
+                        button.addEventListener('click', (e) => deleteUser(e.target.getAttribute('data-id')));
+                    });
+                } else {
+                    userTableBody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-gray-400">No registered users found.</td></tr>`;
+                }
+            }, (error) => {
+                hideLoader();
+                console.error("RTDB Fetch Error (Users):", error);
+            });
+        }
+
+        async function deleteUser(userId) {
+            if (!window.confirm(`Are you sure you want to permanently delete user with ID: ${userId}?`)) return;
+            showLoader(`Deleting user ${userId}...`);
+            try {
+                await remove(ref(db, `users/${userId}`));
+                alert(`User ${userId} deleted successfully.`);
+            } catch (error) {
+                console.error("Delete Error:", error);
+                alert(`Error deleting user: ${error.message}`);
+            } finally {
+                hideLoader();
+            }
+        }
+
+
+        // --- INITIALIZATION ---
+        document.addEventListener('DOMContentLoaded', () => {
+            checkAuthorization();
+            
+            // Setup Navigation Click Handlers
+            document.getElementById('dashboard-nav').addEventListener('click', () => showContent('dashboard'));
+            document.getElementById('stock-management-nav').addEventListener('click', () => showContent('stock-management'));
+            document.getElementById('employee-nav').addEventListener('click', () => showContent('employee'));
+
+            // Transaction Modal Button Handlers
+            document.getElementById('transaction-in-btn').addEventListener('click', () => processStockTransaction(true));
+            document.getElementById('transaction-out-btn').addEventListener('click', () => processStockTransaction(false));
+            document.getElementById('close-transaction-modal-btn').addEventListener('click', () => hideModal(transactionModal));
+            transactionModal.addEventListener('click', (e) => {
+                if (e.target === transactionModal) hideModal(transactionModal);
+            });
+             
+            // Add/Edit Modal Button Handlers (Existing)
+            document.getElementById('add-stock-btn').addEventListener('click', () => {
+                modalTitle.textContent = 'Add New Stock Item';
+                stockIdInput.value = '';
+                stockForm.reset();
+                showModal(stockModal);
+            });
+            document.getElementById('close-modal-btn').addEventListener('click', () => hideModal(stockModal));
+            stockModal.addEventListener('click', (e) => {
+                if (e.target === stockModal) hideModal(stockModal);
+            });
+            
+            // NEW: Search and Filter Listeners
+            const stockSearch = document.getElementById('stock-search');
+            const quantityFilter = document.getElementById('quantity-filter');
+            const outOfStockOnly = document.getElementById('out-of-stock-only');
+
+            // Listeners for search/filter and trigger re-render
+            if (stockSearch) stockSearch.addEventListener('input', filterAndRenderStockGrid);
+            if (quantityFilter) quantityFilter.addEventListener('change', filterAndRenderStockGrid);
+            if (outOfStockOnly) outOfStockOnly.addEventListener('change', () => {
+                // Keep the quantity filter dropdown in sync with the 'Low Stock Only' checkbox
+                const filterDropdown = document.getElementById('quantity-filter');
+                if (outOfStockOnly.checked) {
+                    filterDropdown.value = 'low';
+                } else {
+                    // Reset to 'all' if the checkbox is unchecked, but only if the dropdown wasn't manually set to 'high'
+                    if(filterDropdown.value === 'low') {
+                        filterDropdown.value = 'all';
+                    }
+                }
+                filterAndRenderStockGrid();
+            });
+        });
+
+    </script>
+</head>
+<body>
+    <div id="loader" class="fixed inset-0 flex flex-col items-center justify-center hidden bg-black bg-opacity-70 loader-overlay">
+        <div class="loader-bar"></div>
+        <p id="loader-text" class="mt-4 text-white text-lg font-medium"></p>
+    </div>
+
+    <div class="md:flex md:min-h-screen">
+        
+        <div id="sidebar" class="sidebar flex flex-row md:flex-col p-2 md:p-6 bg-[#161b22] border-b border-gray-700 md:border-b-0 md:border-r md:fixed md:w-[280px] md:h-screen sticky top-0 z-50 overflow-x-auto whitespace-nowrap shadow-2xl">
+            
+            <div class="hidden md:block text-3xl font-extrabold text-indigo-400 mb-12 mt-2 flex-shrink-0">
+                Admin <span class="text-white">Panel</span>
+            </div>
+            
+            <nav class="flex-grow flex flex-row md:flex-col items-center md:items-stretch min-w-max">
+                <a href="#" id="dashboard-nav" class="nav-item active">
+                    <svg class="w-5 h-5 mr-1 md:mr-3" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25a2.25 2.25 0 012.25 2.25v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM15.75 6a2.25 2.25 0 012.25-2.25h2.25A2.25 2.25 0 0122.5 6v2.25a2.25 2.25 0 01-2.25 2.25h-2.25A2.25 2.25 0 0115.75 8.25V6zM3.75 15.75a2.25 2.25 0 012.25-2.25h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM15.75 15.75a2.25 2.25 0 012.25-2.25h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25h-2.25a2.25 2.25 0 01-2.25-2.25v-2.25z" />
+                    </svg> 
+                    <span class="hidden sm:inline md:inline">Dashboard</span>
+                </a>
+                
+                <a href="#" id="stock-management-nav" class="nav-item">
+                    <svg class="w-5 h-5 mr-1 md:mr-3" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.625a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10.75 7.5V3a.75.75 0 011.5 0v4.5m4.5 0h-1.5M18.75 9l-1.5-6h-9l-1.5 6M7.5 7.5h9M12 18V12" />
+                    </svg> 
+                    <span class="hidden sm:inline md:inline">Stock Management</span>
+                </a>
+                
+                <a href="#" id="employee-nav" class="nav-item">
+                    <svg class="w-5 h-5 mr-1 md:mr-3" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.12a.75.75 0 01-1.06 0l-3.25-3.25a.75.75 0 010-1.06L15 11.5a.75.75 0 011.06 0l3.25 3.25a.75.75 0 010 1.06L16.06 19.12a.75.75 0 01-1.06 0zM15 4a3.75 3.75 0 100 7.5A3.75 3.75 0 0015 4z" />
+                    </svg> 
+                    <span class="hidden sm:inline md:inline">Employee / Users</span>
+                </a>
+            </nav>
+            
+            <div class="flex-shrink-0 md:mt-auto md:pt-6 md:border-t md:border-gray-700 ml-auto md:ml-0">
+                 <button id="logout-btn" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-4 rounded-xl transition duration-150 shadow-lg flex items-center justify-center h-full w-full">
+                    <svg class="w-5 h-5 mr-0 md:mr-2" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l3 3m0 0l-3 3m3-3H6" />
+                    </svg> 
+                    <span class="hidden md:inline">Secure Logout</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="content-area w-full md:ml-[280px] p-4 md:p-10 min-h-screen">
+            <header class="header-bg p-5 rounded-xl shadow-xl flex justify-start items-center mb-8 sticky top-0 z-10 w-full">
+                <h1 id="main-content-title" class="text-2xl sm:text-3xl font-extrabold text-white">Dashboard (Stock Overview)</h1>
+            </header>
+
+            <div id="dashboard-content" class="mb-10">
+                <h2 class="text-2xl font-bold mb-6 text-gray-200 border-b border-gray-700 pb-2"></h2>
+                
+                <div class="flex flex-col md:flex-row gap-4 mb-8 bg-[#161b22] p-6 rounded-xl border border-gray-700 items-center shadow-lg">
+                    
+                    <input type="text" id="stock-search" placeholder="Search by Item Name..."
+                           class="flex-grow p-3 bg-[#0d1117] border-2 border-gray-700 rounded-xl text-white focus:ring-indigo-500 focus:border-indigo-500 w-full md:w-auto transition-all duration-300">
+                    
+                    <select id="quantity-filter" class="p-3 bg-[#0d1117] border-2 border-gray-700 rounded-xl text-white w-full md:w-auto focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-300">
+                        <option value="all">All Quantities</option>
+                        <option value="high">High Stock (> 5)</option>
+                        <option value="low">Low Stock (<= 5)</option>
+                    </select>
+
+                    <label class="flex items-center space-x-2 text-red-400 font-semibold p-3 bg-[#0d1117] border-2 border-gray-700 rounded-xl cursor-pointer w-full md:w-auto justify-center hover:bg-[#161b22] transition-colors">
+                        <input type="checkbox" id="out-of-stock-only" class="form-checkbox text-red-500 bg-gray-700 border-gray-600 rounded-lg">
+                        <span>Low Stock Only</span>
+                    </label>
+                </div>
+
+                <div id="stock-grid-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+                    </div>
+            </div>
+
+            <div id="stock-management-content" class="hidden">
+                <div class="bg-[#161b22] p-4 md:p-8 rounded-xl shadow-2xl overflow-x-auto mb-8 border border-gray-700">
+                    <div class="flex justify-between items-center mb-6 border-b border-gray-700 pb-4">
+                        <h2 class="text-2xl font-bold text-gray-200">Stock Item Management</h2>
+                        <button id="add-stock-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-xl transition duration-150 shadow-lg action-btn">
+                            + Add
+                        </button>
+                    </div>
+
+                    <table class="min-w-full divide-y divide-gray-700 rounded-lg overflow-hidden">
+                        <thead class="table-header">
+                            <tr>
+                                <th class="p-4 text-left text-xs font-medium uppercase tracking-wider">S.No</th>
+                                <th class="p-4 text-left text-xs font-medium uppercase tracking-wider">ID</th>
+                                <th class="p-4 text-left text-xs font-medium uppercase tracking-wider">Item Name</th>
+                                <th class="p-4 text-left text-xs font-medium uppercase tracking-wider">Unit</th>
+                                <th class="p-4 text-center text-xs font-medium uppercase tracking-wider">Quantity</th>
+                                <th class="p-4 text-right text-xs font-medium uppercase tracking-wider">Price (per unit)</th>
+                                <th class="p-4 text-center text-xs font-medium uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stock-table-body" class="divide-y divide-gray-800">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="employee-content" class="hidden">
+                <div class="bg-[#161b22] p-4 md:p-8 rounded-xl shadow-2xl overflow-x-auto border border-gray-700">
+                    <h2 class="text-2xl font-bold mb-6 text-gray-200 border-b border-gray-700 pb-4">Employee Details</h2>
+
+                    <table class="min-w-full divide-y divide-gray-700 rounded-lg overflow-hidden">
+                        <thead class="table-header">
+                            <tr>
+                                <th class="p-4 text-left text-xs font-medium uppercase tracking-wider">#</th>
+                                <th class="p-4 text-left text-xs font-medium uppercase tracking-wider">RTDB ID</th>
+                                <th class="p-4 text-left text-xs font-medium uppercase tracking-wider">Name</th>
+                                <th class="p-4 text-left text-xs font-medium uppercase tracking-wider">Email</th>
+                                <th class="p-4 text-left text-xs font-medium uppercase tracking-wider">Phone</th>
+                                <th class="p-4 text-left text-xs font-medium uppercase tracking-wider">Role</th>
+                                <th class="p-4 text-left text-xs font-medium uppercase tracking-wider">Password</th>
+                                <th class="p-4 text-center text-xs font-medium uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="user-table-body" class="divide-y divide-gray-800">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="stock-modal" class="fixed inset-0 bg-black bg-opacity-80 hidden flex items-center justify-center modal-overlay p-4">
+        <div class="bg-[#0d1117] p-8 rounded-xl shadow-2xl max-w-lg w-full border border-gray-700 transform transition-all duration-300">
+            <div class="flex justify-between items-center pb-4 border-b border-gray-700 mb-6">
+                <h3 id="modal-title" class="text-2xl font-bold text-white">Add New Stock Item</h3>
+                <button id="close-modal-btn" class="text-gray-400 hover:text-white text-3xl leading-none transition-colors">&times;</button>
+            </div>
+            
+            <form id="stock-form">
+                <input type="hidden" id="stock-id" value="">
+                <div class="mb-5">
+                    <label for="item-name" class="block text-sm font-medium text-gray-400 mb-2">Item Name</label>
+                    <input type="text" id="item-name" name="itemName" required 
+                           class="w-full p-3 bg-[#161b22] border border-gray-600 rounded-lg text-white focus:ring-indigo-500 focus:border-indigo-500 transition-all">
+                </div>
+                
+                <div class="mb-5">
+                    <label for="item-unit" class="block text-sm font-medium text-gray-400 mb-2">Unit (e.g., kg, pcs, liters)</label>
+                    <input type="text" id="item-unit" name="unit" required 
+                           class="w-full p-3 bg-[#161b22] border border-gray-600 rounded-lg text-white focus:ring-indigo-500 focus:border-indigo-500 transition-all">
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 mb-6">
+                    <div>
+                        <label for="item-quantity" class="block text-sm font-medium text-gray-400 mb-2">Quantity</label>
+                        <input type="number" id="item-quantity" name="quantity" min="0" required 
+                               class="w-full p-3 bg-[#161b22] border border-gray-600 rounded-lg text-white focus:ring-indigo-500 focus:border-indigo-500 transition-all">
+                    </div>
+                    <div>
+                        <label for="item-price" class="block text-sm font-medium text-gray-400 mb-2">Price (per unit) in ₹</label>
+                        <input type="number" id="item-price" name="price" step="0.01" min="0" required 
+                               class="w-full p-3 bg-[#161b22] border border-gray-600 rounded-lg text-white focus:ring-indigo-500 focus:border-indigo-500 transition-all">
+                    </div>
+                </div>
+
+                <div class="flex justify-end space-x-3 pt-2">
+                    <button type="button" onclick="hideModal(stockModal)"
+                            class="action-btn bg-gray-700 hover:bg-gray-600 text-white">
+                        Cancel
+                    </button>
+                    <button type="submit" class="action-btn bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">
+                        Save Stock Item
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+    <div id="transaction-modal" class="fixed inset-0 bg-black bg-opacity-80 hidden flex items-center justify-center modal-overlay p-4">
+        <div class="bg-[#0d1117] p-8 rounded-xl shadow-2xl max-w-sm w-full border border-gray-700 transform transition-all duration-300">
+            <div class="flex justify-between items-center pb-4 border-b border-gray-700 mb-6">
+                <h3 class="text-2xl font-bold text-white">Stock Transaction</h3>
+                <button id="close-transaction-modal-btn" class="text-gray-400 hover:text-white text-3xl leading-none transition-colors">&times;</button>
+            </div>
+            
+            <form id="transaction-form" onsubmit="return false;">
+                <input type="hidden" id="transaction-stock-id" value="">
+
+                <p class="text-xl font-extrabold text-indigo-400 mb-2" id="transaction-item-name"></p>
+                <p class="text-md text-gray-400 mb-6 border-b border-gray-700 pb-4">Current Stock: <span id="transaction-current-quantity" class="font-semibold text-white text-lg"></span></p>
+
+                <div class="mb-8">
+                    <label for="transaction-quantity" class="block text-sm font-medium text-gray-400 mb-2">Quantity to Move</label>
+                    <input type="number" id="transaction-quantity" min="0.01" step="0.01" required 
+                           class="w-full p-4 bg-[#161b22] border border-gray-600 rounded-lg text-white text-xl font-bold focus:ring-indigo-500 focus:border-indigo-500 transition-all" placeholder="Enter amount">
+                </div>
+
+                <div class="flex justify-between space-x-4">
+                    <button type="button" id="transaction-in-btn"
+                            class="flex-1 action-btn bg-green-600 hover:bg-green-700 text-white font-semibold py-4 rounded-xl shadow-lg">
+                        <span class="text-xl mr-2">+</span> Stock IN
+                    </button>
+                    <button type="button" id="transaction-out-btn"
+                            class="flex-1 action-btn bg-red-600 hover:bg-red-700 text-white font-semibold py-4 rounded-xl shadow-lg">
+                        <span class="text-xl mr-2">-</span> Stock OUT
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+    <script>
+        // Simple confirmation replacement for delete action
+        window.confirm = function(message) {
+            return prompt(message + "\n\nType 'YES' to proceed.") === 'YES';
+        };
+        window.alert = function(message) {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = `
+                <div id="custom-alert" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+                    <div class="bg-[#161b22] p-6 rounded-xl shadow-2xl max-w-sm w-full border border-gray-700">
+                        <p class="text-white text-lg mb-6">${message}</p>
+                        <button onclick="document.getElementById('custom-alert').remove()" 
+                                class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-semibold transition-colors">
+                            OK
+                        </button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(tempDiv.firstChild);
+        };
+    </script>
+</body>
+</html>
