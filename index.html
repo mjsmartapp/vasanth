@@ -1,45 +1,388 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Login / Register</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Premium Auth Portal</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for premium look */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117; /* Dark background */
+        }
+        .auth-card {
+            background-color: #161b22; /* Slightly lighter dark card */
+            border: 1px solid #30363d; /* Subtle border */
+        }
+        .input-field {
+            background-color: #0d1117;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .input-field:focus {
+            border-color: #58a6ff; /* Blue focus accent */
+            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.4);
+            background-color: #0d1117;
+        }
+        .submit-btn {
+            background-color: #238636; /* Green accent for primary action */
+            transition: background-color 0.2s;
+        }
+        .submit-btn:hover {
+            background-color: #2ea043;
+        }
+        .loader-overlay {
+            background-color: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(2px);
+            z-index: 50;
+        }
+        /* Loader Bar Animation */
+        .loader-bar {
+            width: 80%;
+            height: 6px;
+            background-color: #238636;
+            border-radius: 9999px;
+            overflow: hidden;
+        }
+        .loader-bar::after {
+            content: '';
+            display: block;
+            width: 20%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+            animation: move-loader 1.5s infinite linear;
+        }
+        @keyframes move-loader {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(500%); }
+        }
+    </style>
+    <!-- Firebase Imports -->
+    <script type="module">
+        // Import Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        // ONLY using Firebase Auth for session management, not credentials
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { getDatabase, ref, set, get, push } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        
+        // IMPORTANT SECURITY NOTE: Storing passwords directly in the Realtime Database 
+        // without hashing (as done here to meet the strict requirement of avoiding 
+        // Firebase Auth storage) is a severe security risk in production applications.
+        
+        // Provided Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyCu_WUd66NRLa_8uI06UXVTlkDh74dMBqU",
+            authDomain: "vasanth-ee54c.firebaseapp.com",
+            databaseURL: "https://vasanth-ee54c-default-rtdb.firebaseio.com",
+            projectId: "vasanth-ee54c",
+            storageBucket: "vasanth-ee54c.firebase-storage.app",
+            messagingSenderId: "668556425496",
+            appId: "1:668556425496:web:1b3aab6bf95a5baa19c66d",
+            measurementId: "G-8R23976J89"
+        };
+        
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getDatabase(app);
+
+        // Global UI elements
+        const loader = document.getElementById('loader');
+        const errorContainer = document.getElementById('error-message');
+        const authTitle = document.getElementById('auth-title');
+        const loginForm = document.getElementById('login-form');
+        const registerForm = document.getElementById('register-form');
+        const switchBtn = document.getElementById('switch-auth-btn');
+
+        // Utility Functions
+        function showLoader(text = 'Processing request...') {
+            document.getElementById('loader-text').textContent = text;
+            loader.classList.remove('hidden');
+            errorContainer.classList.add('hidden');
+        }
+
+        function hideLoader() {
+            loader.classList.add('hidden');
+        }
+
+        function displayError(message) {
+            hideLoader();
+            errorContainer.textContent = message;
+            errorContainer.classList.remove('hidden');
+            // Auto-hide error after 5 seconds
+            setTimeout(() => {
+                errorContainer.classList.add('hidden');
+            }, 5000);
+        }
+
+        function isValidEmail(email) {
+            const re = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
+            return re.test(String(email).toLowerCase());
+        }
+
+        function isValidPhone(phone) {
+            // Basic 10-digit check
+            return /^\d{10}$/.test(phone);
+        }
+
+        // --- AUTHENTICATION LOGIC ---
+
+        // Function to handle redirection based on role found in RTDB
+        function handleRedirection(role) {
+            showLoader(`Login successful. Redirecting as ${role.toUpperCase()}...`);
+            if (role === 'admin') {
+                window.location.href = 'admin.html';
+            } else if (role === 'user') {
+                window.location.href = 'user.html';
+            } else {
+                displayError('Role not recognized. Please contact support.');
+            }
+        }
+
+        // 1. Login Handler (Checks credentials against RTDB only)
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const loginInput = document.getElementById('login-input').value.trim();
+            const password = document.getElementById('login-password').value;
+
+            showLoader('Verifying credentials against database...');
+            
+            let accountFound = false;
+            let userRole = '';
+            
+            try {
+                // Fetch ALL users to perform manual credential lookup
+                const usersRef = ref(db, 'users');
+                // This read operation is now secured by the anonymous sign-in in DOMContentLoaded
+                const snapshot = await get(usersRef);
+
+                if (snapshot.exists()) {
+                    snapshot.forEach((childSnapshot) => {
+                        const userData = childSnapshot.val();
+                        // Check for matching credential (Phone OR Email) AND matching password
+                        if ((userData.phone === loginInput || userData.email === loginInput) && userData.password === password) {
+                            accountFound = true;
+                            userRole = userData.role;
+                            return true; // Stop iteration
+                        }
+                    });
+                }
+
+                if (accountFound) {
+                    // Since we are not using Firebase Auth credentials, we sign in anonymously 
+                    // only to establish a Firebase session for the environment.
+                    // This is redundant here as it's done on load, but kept for robustness.
+                    // await signInAnonymously(auth); 
+                    
+                    // Proceed to redirection with the role retrieved from RTDB
+                    handleRedirection(userRole);
+                } else {
+                    displayError('Login failed. Invalid phone/email or password.');
+                }
+            } catch (error) {
+                // This catch block handles errors during RTDB read or anonymous sign-in
+                console.error("Login Error:", error);
+                displayError('An error occurred during login. Please check the console.');
+            }
+        });
+
+        // 2. Registration Handler (Stores all data in RTDB under a unique key)
+        registerForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('register-name').value.trim();
+            const phone = document.getElementById('register-phone').value.trim();
+            const email = document.getElementById('register-email').value.trim();
+            const password = document.getElementById('register-password').value;
+
+            // VALIDATION
+            if (!name) { displayError('Name is required.'); return; }
+            if (!isValidPhone(phone)) { displayError('Please enter a valid 10-digit Phone Number.'); return; }
+            if (!isValidEmail(email)) { displayError('Please enter a valid Email ID.'); return; }
+            if (password.length < 6) { displayError('Password must be at least 6 characters.'); return; }
+
+            showLoader('Checking uniqueness and registering account in database...');
+            try {
+                // Check for phone and email uniqueness in Realtime Database
+                const usersRef = ref(db, 'users');
+                const snapshot = await get(usersRef);
+                
+                let phoneExists = false;
+                let emailExists = false;
+
+                if (snapshot.exists()) {
+                    snapshot.forEach((childSnapshot) => {
+                        const userData = childSnapshot.val();
+                        if (userData.phone === phone) {
+                            phoneExists = true;
+                        }
+                        if (userData.email === email) {
+                            emailExists = true;
+                        }
+                    });
+                }
+                
+                if (phoneExists) {
+                    displayError('This phone number is already registered.');
+                    return;
+                }
+                if (emailExists) {
+                    displayError('This email is already registered.');
+                    return;
+                }
+
+                // Determine role and Save ALL user details to Realtime Database
+                const role = email === 'admin@test.com' ? 'admin' : 'user';
+
+                // Use push() to create a unique ID for the new user record in RTDB
+                await push(usersRef, {
+                    name: name,
+                    email: email,
+                    phone: phone, 
+                    password: password, // Storing password directly as requested (Security risk in production!)
+                    role: role,
+                    registeredAt: new Date().toISOString()
+                });
+
+                showLoader('Registration successful! Please sign in now.');
+                // Switch back to login view after successful registration
+                setTimeout(() => toggleAuthView(true), 1500); 
+
+            } catch (error) {
+                console.error('Registration Error:', error);
+                displayError('Registration failed due to a database error. Please try again.');
+            }
+        });
+
+        // --- UI STATE MANAGEMENT ---
+
+        let isLoginView = true;
+
+        // Pass 'force' boolean to ensure a specific state can be set
+        function toggleAuthView(forceLogin = null) {
+            if (forceLogin !== null) {
+                isLoginView = forceLogin;
+            } else {
+                isLoginView = !isLoginView;
+            }
+            
+            if (isLoginView) {
+                authTitle.textContent = 'Sign In to Your Account';
+                loginForm.classList.remove('hidden');
+                registerForm.classList.add('hidden');
+                switchBtn.textContent = 'Need an account? Register Here';
+                document.getElementById('login-input-label').textContent = 'Phone Number or Email ID';
+                document.getElementById('login-input').type = 'text'; 
+                document.getElementById('login-input').placeholder = 'Email ID or 10-digit Phone';
+
+            } else {
+                authTitle.textContent = 'Create a New Account';
+                loginForm.classList.add('hidden');
+                registerForm.classList.remove('hidden');
+                switchBtn.textContent = 'Already have an account? Sign In';
+            }
+            errorContainer.classList.add('hidden'); // Clear errors on switch
+        }
+
+        switchBtn.addEventListener('click', () => toggleAuthView());
+        
+        // Initial check: If a user is already authenticated (e.g., via anonymous sign-in), redirect them
+        onAuthStateChanged(auth, async (user) => {
+            // This listener remains for general session management purposes.
+        });
+
+        // Ensure initial view is login and session is established for RTDB read permissions
+        document.addEventListener('DOMContentLoaded', async () => {
+            showLoader('Initializing and establishing session...'); 
+            
+            // Explicitly sign in anonymously to satisfy Realtime Database read rules
+            try {
+                await signInAnonymously(auth);
+                // Once anonymous sign-in is successful, hide the loader and show the form
+                hideLoader(); 
+            } catch (error) {
+                console.error("Anonymous Sign-in Failed:", error);
+                // Show critical error if we can't even establish a base session
+                displayError("CRITICAL: Failed to establish a basic session. Check Firebase configuration/rules.");
+                return;
+            }
+
+            // Set up the initial view
+            toggleAuthView(true); // Sets up initial view state to Login
+        });
+
+    </script>
 </head>
-<body>
+<body class="flex items-center justify-center min-h-screen p-4">
 
-<div class="container" id="loginBox">
-<h2>Login</h2>
+    <!-- Loader Overlay (Always present, toggled hidden/visible) -->
+    <div id="loader" class="loader-overlay fixed inset-0 flex flex-col items-center justify-center hidden">
+        <div class="loader-bar"></div>
+        <p id="loader-text" class="mt-4 text-white text-lg font-medium"></p>
+    </div>
 
-<input type="email" id="loginEmail" placeholder="Email">
-<input type="password" id="loginPassword" placeholder="Password">
+    <!-- Main Auth Card -->
+    <div class="w-full max-w-lg mx-auto p-8 md:p-10 rounded-xl shadow-2xl auth-card">
+        <h1 id="auth-title" class="text-3xl font-extrabold text-white mb-6 text-center"></h1>
 
-<button onclick="loginWithPassword()">Login With Password</button>
-<hr>
-<button onclick="sendOtpLogin()">Send OTP to Email</button>
+        <!-- Error Message Display -->
+        <div id="error-message" class="hidden bg-red-800 text-white p-3 rounded-lg text-sm mb-4 text-center" role="alert">
+            <!-- Error message content -->
+        </div>
 
-<input type="text" id="loginOtp" placeholder="Enter OTP">
-<button onclick="verifyLoginOtp()">Verify OTP Login</button>
+        <!-- 1. LOGIN FORM (Credentials checked against RTDB) -->
+        <form id="login-form" class="space-y-6">
+            <div>
+                <label for="login-input" id="login-input-label" class="block text-sm font-medium text-gray-400 mb-1">Phone Number or Email ID</label>
+                <input type="text" id="login-input" placeholder="Email ID or 10-digit Phone" required 
+                       class="input-field w-full p-3 rounded-lg text-white placeholder-gray-500 focus:outline-none">
+            </div>
+            <div>
+                <label for="login-password" class="block text-sm font-medium text-gray-400 mb-1">Password</label>
+                <input type="password" id="login-password" placeholder="••••••••" required 
+                       class="input-field w-full p-3 rounded-lg text-white placeholder-gray-500 focus:outline-none">
+            </div>
+            <button type="submit" class="submit-btn w-full text-white py-3 rounded-lg font-semibold text-lg shadow-md hover:shadow-xl">
+                Sign In
+            </button>
+        </form>
 
-<div class="link" onclick="switchToRegister()">Create New Account</div>
-</div>
+        <!-- 2. REGISTER FORM (Stores all fields including credentials in RTDB) -->
+        <form id="register-form" class="space-y-6 hidden">
+            <div>
+                <label for="register-name" class="block text-sm font-medium text-gray-400 mb-1">Full Name</label>
+                <input type="text" id="register-name" placeholder="Name" required 
+                       class="input-field w-full p-3 rounded-lg text-white placeholder-gray-500 focus:outline-none">
+            </div>
+            <div>
+                <label for="register-phone" class="block text-sm font-medium text-gray-400 mb-1">Phone Number (10 digits)</label>
+                <input type="tel" id="register-phone" placeholder="e.g., 9876543210" required pattern="[0-9]{10}" maxlength="10"
+                       class="input-field w-full p-3 rounded-lg text-white placeholder-gray-500 focus:outline-none">
+            </div>
+            <div>
+                <label for="register-email" class="block text-sm font-medium text-gray-400 mb-1">Email ID</label>
+                <input type="email" id="register-email" placeholder="Email ID" required 
+                       class="input-field w-full p-3 rounded-lg text-white placeholder-gray-500 focus:outline-none">
+            </div>
+            <div>
+                <label for="register-password" class="block text-sm font-medium text-gray-400 mb-1">Password (min 6 chars)</label>
+                <input type="password" id="register-password" placeholder="••••••••" required minlength="6"
+                       class="input-field w-full p-3 rounded-lg text-white placeholder-gray-500 focus:outline-none">
+            </div>
+            <button type="submit" class="submit-btn w-full text-white py-3 rounded-lg font-semibold text-lg shadow-md hover:shadow-xl">
+                Register Account
+            </button>
+        </form>
 
-<div class="container" id="registerBox" style="display:none;">
-<h2>Register</h2>
+        <!-- Switch Button -->
+        <div class="mt-8 pt-4 border-t border-gray-700 text-center">
+            <button id="switch-auth-btn" class="text-sm font-medium text-blue-400 hover:text-blue-300 transition duration-150">
+                Switch to Register/Login
+            </button>
+        </div>
+    </div>
 
-<input type="text" id="regName" placeholder="Full Name">
-<input type="email" id="regEmail" placeholder="Email">
-<input type="password" id="regPassword" placeholder="Password">
-
-<button onclick="sendRegisterOtp()">Send OTP to Email</button>
-
-<input type="text" id="regOtp" placeholder="Enter OTP">
-
-<button onclick="completeRegister()">Register Account</button>
-
-<div class="link" onclick="switchToLogin()">Already have an account?</div>
-</div>
-
-<script type="module" src="script.js"></script>
 </body>
 </html>
